@@ -3,8 +3,10 @@
 namespace Modules\User\App\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Models\Post;
 use Modules\User\App\Http\Requests\Post\ListPostRequest;
 use Modules\User\App\Http\Resources\Post\PostCollection;
+use Modules\User\App\Http\Resources\Post\PostResource;
 use Modules\User\App\Services\PostService;
 
 class PostController extends Controller
@@ -27,5 +29,19 @@ class PostController extends Controller
         );
     }
 
-    public function show() {}
+    public function show(Post $post): PostResource
+    {
+        return new PostResource(
+            $post,
+            __FUNCTION__
+        );
+    }
+
+    public function getPostsByCategories(): PostCollection
+    {
+        return new PostCollection(
+            $this->postService->getPostsByCategories(),
+            __FUNCTION__
+        );
+    }
 }

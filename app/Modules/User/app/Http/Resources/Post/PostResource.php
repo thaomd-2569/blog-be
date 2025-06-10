@@ -28,4 +28,14 @@ class PostResource extends BaseResource
             'created_at' => $this->created_at,
         ];
     }
+
+    public function getPostsByCategories(): array
+    {
+        return $this->index();
+    }
+
+    public function show(): array
+    {
+        return $this->index();
+    }
 }

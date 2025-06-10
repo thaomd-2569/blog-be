@@ -3,6 +3,7 @@
 namespace Modules\User\App\Services;
 
 use Illuminate\Contracts\Pagination\Paginator;
+use Illuminate\Database\Eloquent\Collection;
 use Modules\User\App\Contracts\Repositories\PostRepositoryInterface;
 
 class PostService
@@ -19,5 +20,10 @@ class PostService
         return $this->repository->getPostsByConditions(
             $conditions
         );
+    }
+
+    public function getPostsByCategories(): Collection
+    {
+        return $this->repository->getPostsByCategories();
     }
 }
