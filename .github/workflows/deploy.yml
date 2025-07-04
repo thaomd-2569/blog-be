@@ -41,6 +41,9 @@ jobs:
           git fetch origin develop
           git checkout develop
           git pull
+
+          echo "=== START DOCKER ==="
+          sudo service docker start || true
           
           echo "=== STOPPING DOCKER CONTAINERS ==="
           docker-compose down || true
