@@ -36,6 +36,11 @@ jobs:
           echo "Going to project directory: ${{ secrets.PROJECT_PATH }}"
           cd ${{ secrets.PROJECT_PATH }}
           echo "Now in directory: $(pwd)"
+
+          echo "=== PULLING LATEST CHANGES ==="
+          git fetch origin develop
+          git checkout develop
+          git pull
           
           echo "=== STOPPING DOCKER CONTAINERS ==="
           docker-compose down || true
