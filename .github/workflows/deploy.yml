@@ -3,7 +3,7 @@ name: Deploy to Develop
 on:
   push:
     branches:
-      - develop
+    - develop
 
 jobs:
   deploy:
@@ -11,37 +11,41 @@ jobs:
     if: github.event_name == 'push' || (github.event.pull_request.merged == true)
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Go to project directory
-        run: |
-          echo "Go to project directory..."
-          cd blog-be
+    - name: Setup SSH key for EC2 connection
+      run: |
+        echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ${{ secrets.SSH_KEY_NAME }}
+        chmod 600 ${{ secrets.SSH_KEY_NAME }}
 
-      - name: Stop existing Docker containers
-        run: |
-          echo "Stopping Docker containers..."
+    - name: Deploy to EC2
+      run: |
+        echo "Connecting to EC2 instance and deploying..."
+        ssh -i ${{ secrets.SSH_KEY_NAME }} -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+          echo "Connected to EC2 instance"
+          echo "Current directory: $(pwd)"
+          
+          echo "Going to project directory: ${{ secrets.PROJECT_PATH }}"
+          cd ${{ secrets.PROJECT_PATH }}
+          echo "Now in directory: $(pwd)"
+          
+          echo "=== STOPPING DOCKER CONTAINERS ==="
           docker-compose down || true
           docker system prune -f || true
-
-      - name: Create .env file from .env.example
-        run: |
-          echo "Creating .env file from .env.example..."
+          
+          echo "=== CREATING .ENV FILE ==="
           cp .env.example .env
-
-      - name: Get environment variables from AWS Parameter Store
-        run: |
-          echo "Fetching environment variables from AWS Parameter Store..."
-
-          # Define parameter paths - adjust these according to your parameter store structure
+          
+          echo "=== FETCHING AWS PARAMETERS ==="
+          # Define parameter paths
           PARAM_PREFIX="/blog-app"
 
           # Get all parameters with the prefix
@@ -55,7 +59,6 @@ jobs:
           # Process each parameter and update .env file
           while IFS=$'\t' read -r name value; do
             # Extract the key name from the parameter path
-            # e.g., /blog-app/DB_HOST -> DB_HOST
             key=$(echo "$name" | sed "s|^$PARAM_PREFIX/||")
             
             # Escape special characters in value for sed
@@ -75,55 +78,41 @@ jobs:
 
           # Clean up
           rm params.txt
-
           echo "Environment variables updated successfully"
-
-      - name: Display .env file (masked sensitive data)
-        run: |
+          
+          echo "=== DISPLAYING .ENV FILE (MASKED) ==="
           echo "Current .env file contents (sensitive values masked):"
           sed 's/=.*/=***/' .env
-
-      - name: Start Docker containers
-        run: |
-          echo "Starting Docker containers..."
-          docker-compose docker-compose-deploy.yml up -d
-
-      - name: Wait for containers to be ready
-        run: |
-          echo "Waiting for containers to be ready..."
+          
+          echo "=== STARTING DOCKER CONTAINERS ==="
+          docker-compose -f docker-compose-deploy.yml up -d
+          
+          echo "=== WAITING FOR CONTAINERS ==="
           sleep 30
-
-          # Check if containers are running
           docker-compose ps
-
-      - name: Install Composer dependencies and setup Laravel
-        run: |
-          echo "Installing Composer dependencies..."
+          
+          echo "=== INSTALLING COMPOSER DEPENDENCIES ==="
           docker-compose exec -T blog_be_app composer install --no-dev --optimize-autoloader
-
-          echo "Generating application key..."
+          
+          echo "=== GENERATING APPLICATION KEY ==="
           docker-compose exec -T blog_be_app php artisan key:generate --force
-
-          echo "Dumping autoload..."
+          
+          echo "=== DUMPING AUTOLOAD ==="
           docker-compose exec -T blog_be_app composer dump-autoload --optimize
-
-          echo "Running database migrations..."
+          
+          echo "=== RUNNING DATABASE MIGRATIONS ==="
           docker-compose exec -T blog_be_app php artisan migrate --force
-
-          echo "Running database seedings..."
+          
+          echo "=== RUNNING DATABASE SEEDINGS ==="
           docker-compose exec -T blog_be_app php artisan db:seed --force
-
-          echo "Clearing and caching config..."
+          
+          echo "=== CLEARING AND CACHING CONFIG ==="
           docker-compose exec -T blog_be_app php artisan optimize:clear
-
-      - name: Health check
-        run: |
-          echo "Performing health check..."
-
-          # Wait a bit more for the application to be fully ready
+          
+          echo "=== PERFORMING HEALTH CHECK ==="
           sleep 10
-
-          # Check if the application is responding
+          
+          # Health check
           max_attempts=5
           attempt=1
 
@@ -144,18 +133,28 @@ jobs:
               ((attempt++))
             fi
           done
-
-      - name: Display container status
-        run: |
-          echo "Final container status:"
+          
+          echo "=== FINAL CONTAINER STATUS ==="
           docker-compose ps
-
-          echo "Application logs:"
+          
+          echo "=== APPLICATION LOGS ==="
           docker-compose logs --tail=10 blog_be_app
+          
+          echo "=== DEPLOYMENT COMPLETED SUCCESSFULLY ==="
+        EOF
 
-      - name: Cleanup on failure
-        if: failure()
-        run: |
-          echo "Deployment failed, showing logs for debugging..."
+    - name: Cleanup on failure
+      if: failure()
+      run: |
+        echo "Deployment failed, showing logs for debugging..."
+        ssh -i ${{ secrets.SSH_KEY_NAME }} -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+          cd ${{ secrets.PROJECT_PATH }}
+          echo "=== DEPLOYMENT FAILED - SHOWING LOGS ==="
           docker-compose logs
           docker-compose down
+        EOF
+
+    - name: Cleanup SSH key
+      if: always()
+      run: |
+        rm -f ${{ secrets.SSH_KEY_NAME }}
